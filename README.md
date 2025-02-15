@@ -1,82 +1,107 @@
-
 # Live Stream Server
 
-This project is a Node.js-based live stream server that uses WebSocket and Express to handle audio and video streams from clients. The server saves the media streams to files and provides an endpoint to list the recorded files.
+A Node.js-based live stream server that captures, processes, and stores audio/video streams. It uses WebSocket for real-time streaming, processes video frames individually, and assembles them into MP4 files using FFmpeg.
 
 ## Features
 
-- WebSocket server for handling audio and video streams
-- Express server for serving HTTP requests
-- Stores media streams in the `media` directory
-  - Audio files are saved in `media/audio`
-  - Video files are saved in `media/video`
-- Provides an endpoint to list recorded media files
+- WebSocket server for real-time media streaming
+- Video frame-by-frame processing and MP4 assembly
+- WAV audio recording with proper headers
+- Temporary frame storage and cleanup
+- Express endpoint for listing recordings
+- Automatic media directory structure:
+  - `media/audio`: WAV audio recordings
+  - `media/video`: MP4 video recordings
+  - `media/temp`: Temporary frame storage
+
+## Prerequisites
+
+- Node.js
+- FFmpeg installed on your system
+- npm packages: `ws`, `express`, `fluent-ffmpeg`
 
 ## Setup
 
-1. Clone the repository:
+1. Install FFmpeg on your system:
     ```sh
-    git clone <repository-url>
-    cd live-stream-server
+    # For MacOS
+    brew install ffmpeg
+
+    # For Ubuntu
+    sudo apt-get install ffmpeg
     ```
 
-2. Install dependencies:
+2. Install Node.js dependencies:
     ```sh
-    npm install
+    npm install ws express fluent-ffmpeg
     ```
 
-3. Create the necessary directories for storing media files:
-    ```sh
-    mkdir -p media/audio media/video
-    ```
-
-4. Start the server:
+3. Start the server:
     ```sh
     node index.js
     ```
 
-## Usage
+## WebSocket API
 
-### WebSocket
+Connect to `ws://localhost:8080` and send JSON messages in the following format:
 
-- Connect to the WebSocket server at `ws://localhost:8080`
-- Send JSON messages with the following structure:
+### 1. Connect to Space
+```json
+{
+    "eventType": "CONNECT",
+    "id": "client-id"
+}
+```
 
-  - **CONNECT**: Notify the server that a client has connected
-    ```json
-    {
-      "eventType": "CONNECT",
-      "id": "client-id"
-    }
-    ```
+### 2. Stream Media
+```json
+{
+    "eventType": "STREAM",
+    "mediaSourceType": "AUDIO" | "VIDEO",
+    "encodedMediaChunk": "<base64-encoded-media-chunk>"
+}
+```
+- For video: Send individual frames as base64-encoded JPG images
+- For audio: Send raw PCM audio data (44.1kHz, 16-bit, mono)
 
-  - **STREAM**: Send media chunks to the server
-    ```json
-    {
-      "eventType": "STREAM",
-      "mediaSourceType": "AUDIO" | "VIDEO",
-      "encodedMediaChunk": "<base64-encoded-media-chunk>"
-    }
-    ```
+### 3. Close Connection
+```json
+{
+    "eventType": "CLOSE"
+}
+```
 
-  - **CLOSE**: Notify the server that a client has disconnected
-    ```json
-    {
-      "eventType": "CLOSE"
-    }
-    ```
+## HTTP Endpoints
 
-### HTTP
+### List Recordings
+```sh
+GET http://localhost:8080/recordings
+```
 
-- List recorded media files:
-  ```sh
-  curl http://localhost:8080/recordings
-  ```
-
-  The response will be a JSON object containing lists of audio and video files:
-  ```json
-  {
-    "video": ["clientId_timestamp.webm", ...],
+Response:
+```json
+{
+    "video": ["clientId_timestamp.mp4", ...],
     "audio": ["clientId_timestamp.wav", ...]
-  }
-  ```
+}
+```
+
+## Technical Details
+
+### Video Processing
+- Frames are saved individually as JPG files
+- FFmpeg assembles frames into MP4 files at 15 FPS
+- Video settings: H.264 codec, YUV420P format
+- Temporary frames are automatically cleaned up
+
+### Audio Processing
+- Format: WAV (PCM)
+- Sample Rate: 44.1kHz
+- Bit Depth: 16-bit
+- Channels: Mono
+
+## Error Handling
+- Automatic cleanup on client disconnection
+- Duplicate processing prevention
+- Temporary file cleanup
+- Error logging for failed operations
