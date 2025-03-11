@@ -3,6 +3,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const ffmpeg = require('fluent-ffmpeg');
+const { spawn } = require('child_process');
 
 const app = express();
 const server = app.listen(8080, () => console.log("\n🚀 Server running on port 8080...\n"));
@@ -167,6 +168,8 @@ wss.on("connection", (ws) => {
     const clientId = Date.now().toString();
     ws.clientId = clientId;
 
+    let ffmpeg;
+
     ws.on("message", (message) => {
         try {
             let data = JSON.parse(message);
@@ -196,6 +199,41 @@ wss.on("connection", (ws) => {
                         }
                         writeStream.write(chunk);
                     }
+                    break;
+                
+                case "REQUEST_AUDIO_STREAM_PLAYBACK":
+                    console.log(`📢 User requested audio stream playback`);
+
+                    // Spawn ffmpeg to read mysong.mp3 (any format) and output raw PCM16 at 24 kHz, mono
+                    ffmpeg = spawn('ffmpeg', [
+                        '-i', 'mysong.mp3',    // your source audio file
+                        '-f', 's16le',         // raw PCM16 format
+                        '-acodec', 'pcm_s16le',
+                        '-ar', '24000',        // sample rate
+                        '-ac', '1',            // mono
+                        'pipe:1'               // write to STDOUT
+                    ]);
+
+                    // Whenever ffmpeg produces a chunk of PCM data, base64-encode and send to the client
+                    ffmpeg.stdout.on('data', (chunk) => {
+                        // chunk is a Buffer of raw PCM16
+                        const b64 = chunk.toString('base64');
+                        ws.send(JSON.stringify({
+                            eventType: "AUDIO_STREAM_PAYLOAD",
+                            audioChunk: b64,
+                        }));
+                    });
+
+                    // Optional: log ffmpeg errors
+                    ffmpeg.stderr.on('data', (err) => {
+                        console.error('FFmpeg error:', err.toString());
+                    });
+
+                    ffmpeg.on('close', (code) => {
+                        console.log('FFmpeg exited with code:', code);
+                        
+                    });
+
                     break;
 
                 case "CLOSE":
@@ -259,6 +297,9 @@ wss.on("connection", (ws) => {
 
     ws.on("close", () => {
         console.log("❌ Client disconnected!");
+        if (ffmpeg) {
+            ffmpeg.kill('SIGKILL');
+        }
         closeClientStreams(ws.clientId);
     });
 
@@ -278,4 +319,4 @@ app.get('/recordings', (req, res) => {
     });
 });
 
-console.log("\n🎧 WebSocket Server Ready! Listening for Audio & Video Streams...\n");
+console.log("\n🎧 WebSocket Server Ready! Listening for Audio, Video, and Audio Stream Playback Requests...\n");
